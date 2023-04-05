@@ -22,9 +22,9 @@ def clean_wechat_category(row_obj):
     if "滴滴" in row_obj["交易对方"]:
         result = "交通"
     elif "餐" in row_obj["商品"]:
-        result = "三餐"
+        result = "餐饮"
     elif any([x in row_obj["交易对方"] for x in EAT_CATEGORY]):
-        result = "三餐"
+        result = "餐饮"
     elif row_obj["交易对方"] == "Apple" or "iCloud" in row_obj["交易对方"]:
         result = "应用软件"
     elif "动物" in row_obj["交易对方"] or "宠物" in row_obj["交易对方"]:
