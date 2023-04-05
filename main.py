@@ -2,7 +2,7 @@ import csv
 import chardet
 
 
-EAT_CATEGORY = ["饭", "面", "粉", "汤", "包道", "饺", "快餐", "饼", "丰宜", "鲍师傅", "餐厅", "便利店", "寿司", "奶茶", "酸奶", "奶"]
+EAT_CATEGORY = ["饭", "面", "粉", "汤", "包道", "饺", "快餐", "饼", "丰宜", "鲍师傅", "餐厅", "便利店", "寿司", "奶茶", "酸奶", "奶", "麦当劳", "肯德基"]
 SHOPPING_CATEGORY = ["京东", "淘宝", "拼多多", "PSO Brand", "服饰"]
 
 
@@ -31,8 +31,8 @@ def clean_wechat_category(row_obj):
         result = "宠物"
     elif "医院" in row_obj["交易对方"]:
         result = "医疗"
-    elif "充值" in row_obj["交易对方"]:
-        result = "通讯"
+    elif "充值" in row_obj["交易对方"] or any([x in row_obj["交易对方"] for x in ["联通", "电信"]]):
+        result = "充值缴费"
     elif any([x in row_obj["交易对方"] for x in SHOPPING_CATEGORY]):
         result = "购物"
     return result
@@ -119,7 +119,7 @@ def main(source_type, filename):
         # 将每一行数据转换为字典，并添加到列表中
         dict_list = [dict(zip(header, row)) for row in data[1:]]
         with open(os.path.join(DIR_PATH, f"{source_type}.csv"), 'w',
-                  newline='') as new_file:
+                  newline='', encoding='utf-8') as new_file:
             fieldnames = ['日期', '类型', '金额', '一级分类', '二级分类', '账户1', '账户2', "备注"]
             csv_writer = csv.DictWriter(new_file, fieldnames=fieldnames)
             csv_writer.writeheader()
