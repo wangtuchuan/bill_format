@@ -70,6 +70,8 @@ def clean_alipay_category(row_obj):
 
 def process_alipay_func(row, csv_writer):
     """阿里处理函数"""
+    if row['收/支'].strip() == "不计收支" and row["交易对方"].strip() == "兴全基金管理有限公司" and "收益发放" in row["商品说明"]:
+        row["收/支"] = "收入"
     csv_writer.writerow({
         '日期': row['交易时间'],
         '类型': row['收/支'],
