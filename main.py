@@ -2,7 +2,8 @@ import csv
 import chardet
 
 
-EAT_CATEGORY = ["饭", "面", "粉", "汤", "包道", "饺", "快餐", "饼", "丰宜", "鲍师傅", "餐厅", "便利店", "寿司", "奶茶", "酸奶", "奶", "麦当劳", "肯德基"]
+EAT_CATEGORY = ["饭", "面", "粉", "汤", "包道", "饺", "快餐", "饼", "丰宜", "鲍师傅", "餐厅", "便利店", "寿司", "奶茶", "酸奶"
+    , "奶", "麦当劳", "肯德基", "吐司", "大弗兰", "广东罗森"]
 SHOPPING_CATEGORY = ["京东", "淘宝", "拼多多", "PSO Brand", "服饰"]
 
 
@@ -21,6 +22,10 @@ def clean_wechat_category(row_obj):
     result = row_obj["交易类型"]
     if "滴滴" in row_obj["交易对方"]:
         result = "交通"
+    elif "中铁网络" in row_obj["交易对方"]:
+        result = "交通"
+    elif "超市" in row_obj["交易对方"]:
+        result = "日用"
     elif "餐" in row_obj["商品"]:
         result = "餐饮"
     elif any([x in row_obj["交易对方"] for x in EAT_CATEGORY]):
@@ -70,7 +75,10 @@ def clean_alipay_category(row_obj):
 
 def process_alipay_func(row, csv_writer):
     """阿里处理函数"""
+    # 余额宝每日收益
     if row['收/支'].strip() == "不计收支" and row["交易对方"].strip() == "兴全基金管理有限公司" and "收益发放" in row["商品说明"]:
+        row["收/支"] = "收入"
+    if row['收/支'].strip() == "不计收支" and row['交易状态'].strip() == "退款成功":
         row["收/支"] = "收入"
     csv_writer.writerow({
         '日期': row['交易时间'],
@@ -80,7 +88,7 @@ def process_alipay_func(row, csv_writer):
         '二级分类': '',
         '账户1': clean_alipay_account(row['收/付款方式']),
         '账户2': '',
-        '备注': row['交易对方']
+        '备注': row['交易对方'] + row['交易时间']
     })
 
 
@@ -94,7 +102,7 @@ def process_wechat_func(row, csv_writer):
         '二级分类': '',
         '账户1': clean_wechat_account(row['支付方式']),
         '账户2': '',
-        '备注': row['交易对方']
+        '备注': row['交易对方'] + row["交易时间"]
     })
 
 
