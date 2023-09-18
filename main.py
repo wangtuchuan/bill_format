@@ -1,10 +1,13 @@
 import csv
 import chardet
 
-
-EAT_CATEGORY = ["饭", "面", "粉", "汤", "包道", "饺", "快餐", "饼", "丰宜", "鲍师傅", "餐厅", "便利店", "寿司", "奶茶", "酸奶"
+EAT_CATEGORY = ["饭", "面", "粉", "汤", "包道", "饺", "快餐", "饼", "丰宜", "鲍师傅", "餐厅", "便利店", "寿司", "奶茶",
+                "酸奶"
     , "奶", "麦当劳", "肯德基", "吐司", "大弗兰", "广东罗森", "喜市多", "智能货柜", "餐饮", "食品", "小荔园"]
 SHOPPING_CATEGORY = ["京东", "淘宝", "拼多多", "PSO Brand", "服饰"]
+
+ALIPAY = "alipay"
+WECHAT = "wechat"
 
 
 def clean_wechat_account(obj):
@@ -78,7 +81,8 @@ def clean_alipay_category(row_obj):
 def process_alipay_func(row, csv_writer):
     """阿里处理函数"""
     # 余额宝每日收益
-    if row['收/支'].strip() == "不计收支" and row["交易对方"].strip() == "兴全基金管理有限公司" and "收益发放" in row["商品说明"]:
+    if row['收/支'].strip() == "不计收支" and row["交易对方"].strip() == "兴全基金管理有限公司" and "收益发放" in row[
+        "商品说明"]:
         row["收/支"] = "收入"
     if row['收/支'].strip() == "不计收支" and row['交易状态'].strip() == "退款成功":
         row["收/支"] = "收入"
@@ -108,11 +112,7 @@ def process_wechat_func(row, csv_writer):
     })
 
 
-def main(source_type, filename):
-    process_func = {
-        ALIPAY: process_alipay_func,
-        WECHAT: process_wechat_func,
-    }
+def load_data(source_type, filename):
     with open(filename, 'rb') as f:
         result = chardet.detect(f.read())
     with open(filename, 'r', encoding=result['encoding'], errors="ignore") as csv_file:
@@ -129,36 +129,35 @@ def main(source_type, filename):
         data = [row for row in reader]
         header = data[0]
         # 将每一行数据转换为字典，并添加到列表中
-        dict_list = [dict(zip(header, row)) for row in data[1:]]
-        with open(os.path.join(DIR_PATH, f"{source_type}.csv"), 'w',
-                  newline='', encoding='utf-8') as new_file:
-            fieldnames = ['日期', '类型', '金额', '一级分类', '二级分类', '账户1', '账户2', "备注"]
-            csv_writer = csv.DictWriter(new_file, fieldnames=fieldnames)
-            csv_writer.writeheader()
+        return [dict(zip(header, row)) for row in data[1:]]
+
+
+def write_data(path, data):
+    process_func = {
+        ALIPAY: process_alipay_func,
+        WECHAT: process_wechat_func,
+    }
+    with open(os.path.join(path, "total.csv"), 'w',
+              newline='', encoding='utf-8') as new_file:
+        fieldnames = ['日期', '类型', '金额', '一级分类', '二级分类', '账户1', '账户2', "备注"]
+        csv_writer = csv.DictWriter(new_file, fieldnames=fieldnames)
+        csv_writer.writeheader()
+        for source_type, dict_list in data.items():
             for row in dict_list:
                 tmp_row = {}
                 # 清楚多余空格字符
                 for k, v in row.items():
                     tmp_row[k.strip()] = v
-
                 process_func.get(source_type)(tmp_row, csv_writer)
 
 
-if __name__ == "__main__":
-    import os
-    import glob
-
-    import platform
-
+def main():
     DIR_PATH = ""
     # 指定目录
     if platform.system() == "Windows":
         DIR_PATH = "C:\\Users\wang7\\iCloudDrive\\bill_files\\"
     elif platform.system() == "Darwin":
         DIR_PATH = "/Users/wangzhen/Library/Mobile Documents/com~apple~CloudDocs/bill_files/"
-
-    ALIPAY = "alipay"
-    WECHAT = "wechat"
 
     # 查找指定目录下所有csv文件
     csv_files = glob.glob(DIR_PATH + "*.csv")
@@ -168,11 +167,21 @@ if __name__ == "__main__":
 
     newest_wechat_csv_file = ""
     newest_alipay_csv_file = ""
+    data = {}
     for csv_file in csv_files:
         filename = os.path.basename(csv_file)
         if filename.startswith("alipay_record") and not newest_alipay_csv_file:
             newest_alipay_csv_file = filename
-            main(ALIPAY, csv_file)
+            data[ALIPAY] = load_data(ALIPAY, csv_file)
         if filename.startswith("微信支付账单") and not newest_wechat_csv_file:
             newest_wechat_csv_file = filename
-            main(WECHAT, csv_file)
+            data[WECHAT] = load_data(WECHAT, csv_file)
+    write_data(DIR_PATH, data)
+
+
+if __name__ == "__main__":
+    import os
+    import glob
+
+    import platform
+    main()
