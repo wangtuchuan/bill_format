@@ -3,11 +3,18 @@ import chardet
 
 EAT_CATEGORY = ["饭", "面", "粉", "汤", "包道", "饺", "快餐", "饼", "丰宜", "鲍师傅", "餐厅", "便利店", "寿司", "奶茶",
                 "酸奶"
-    , "奶", "麦当劳", "肯德基", "吐司", "大弗兰", "广东罗森", "喜市多", "智能货柜", "餐饮", "食品", "小荔园", "都城"]
+    , "奶", "麦当劳", "肯德基", "吐司", "大弗兰", "广东罗森", "喜市多", "智能货柜", "餐饮", "食品", "小荔园", "都城", "大阪王将"]
 SHOPPING_CATEGORY = ["京东", "淘宝", "拼多多", "PSO Brand", "服饰"]
 
 ALIPAY = "alipay"
 WECHAT = "wechat"
+
+ALL_CATEGORIES = ["餐饮", "购物", "日用", "数码", "住房", "交通", "娱乐", "医疗", "人情", "宠物", "旅行", "公益", "其他"]
+
+
+def format_bill_category(category):
+    """统一过滤最终的分类"""
+    return category if category in ALL_CATEGORIES else "其他"
 
 
 def clean_wechat_account(obj):
@@ -23,9 +30,7 @@ def clean_wechat_account(obj):
 def clean_wechat_category(row_obj):
     """清洗微信的分类"""
     result = row_obj["交易类型"]
-    if "滴滴" in row_obj["交易对方"]:
-        result = "交通"
-    elif "中铁网络" in row_obj["交易对方"]:
+    if "滴滴" in row_obj["交易对方"] or "中铁网络" in row_obj["交易对方"]:
         result = "交通"
     elif "超市" in row_obj["交易对方"]:
         result = "日用"
@@ -36,16 +41,22 @@ def clean_wechat_category(row_obj):
     elif any([x in row_obj["交易对方"] for x in EAT_CATEGORY]):
         result = "餐饮"
     elif row_obj["交易对方"] == "Apple" or "iCloud" in row_obj["交易对方"]:
-        result = "应用软件"
+        result = "娱乐"
     elif "动物" in row_obj["交易对方"] or "宠物" in row_obj["交易对方"]:
         result = "宠物"
     elif "医院" in row_obj["交易对方"]:
         result = "医疗"
     elif "充值" in row_obj["交易对方"] or any([x in row_obj["交易对方"] for x in ["联通", "电信"]]):
-        result = "充值缴费"
+        result = "日用"
     elif any([x in row_obj["交易对方"] for x in SHOPPING_CATEGORY]):
         result = "购物"
-    return result
+    elif "思源工程" in row_obj["交易对方"]:
+        result = "公益"
+    elif "微信红包" in result:
+        result = "其他"
+    elif result == "商户消费":
+        result = "其他"
+    return format_bill_category(result)
 
 
 def clean_alipay_account(obj):
@@ -65,17 +76,21 @@ def clean_alipay_category(row_obj):
     result = row_obj["交易分类"].strip()
     if result == "餐饮美食":
         result = "餐饮"
-    if result == "爱车养车":
-        result = "汽车"
     if result == "交通出行":
         result = "交通"
-    if result == "服饰装扮":
-        result = "服饰"
+    if result in ["服饰装扮", "家居家装"]:
+        result = "购物"
     if result == "数码电器":
         result = "数码"
-    if result == "日用百货":
+    if result in ["生活服务", "日用百货", "爱车养车", "美容美发"]:
         result = "日用"
-    return result
+    if result == "医疗健康":
+        result = "医疗"
+    if result == "文化休闲":
+        result = "娱乐"
+    if result == "充值缴费":
+        result = "日用"
+    return format_bill_category(result)
 
 
 def process_alipay_func(row, csv_writer):
