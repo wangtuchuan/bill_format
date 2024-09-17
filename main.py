@@ -9,7 +9,7 @@ SHOPPING_CATEGORY = ["京东", "淘宝", "拼多多", "PSO Brand", "服饰"]
 ALIPAY = "alipay"
 WECHAT = "wechat"
 
-ALL_CATEGORIES = ["餐饮", "购物", "日用", "数码", "住房", "交通", "娱乐", "医疗", "人情", "宠物", "旅行", "公益", "其他"]
+ALL_CATEGORIES = ["餐饮", "购物", "日用", "数码", "住房", "交通", "娱乐", "医疗", "人情", "宠物", "旅行", "公益", "其他", "投资"]
 
 
 def format_bill_category(category):
@@ -99,6 +99,7 @@ def process_alipay_func(row, csv_writer):
     if row['收/支'].strip() == "不计收支" and row["交易对方"].strip() == "兴全基金管理有限公司" and "收益发放" in row[
         "商品说明"]:
         row["收/支"] = "收入"
+        row["交易分类"] = "投资"
     if row['收/支'].strip() == "不计收支" and row['交易状态'].strip() == "退款成功":
         row["收/支"] = "收入"
     csv_writer.writerow({
