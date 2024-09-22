@@ -171,7 +171,8 @@ def main():
     DIR_PATH = ""
     # 指定目录
     if platform.system() == "Windows":
-        DIR_PATH = "C:\\Users\wang7\\iCloudDrive\\bill_files\\"
+        DIR_PATH = "Y:\\bill_files\\"
+        # DIR_PATH = "C:\\Users\wang7\\iCloudDrive\\bill_files\\"
     elif platform.system() == "Darwin":
         DIR_PATH = "/Users/wangzhen/Library/Mobile Documents/com~apple~CloudDocs/bill_files/"
 
