@@ -3,6 +3,7 @@ from sentence_transformers import SentenceTransformer
 import chromadb
 from openai import OpenAI
 import os
+import environ
 
 CATEGORIES = [
     "餐饮",
@@ -23,6 +24,9 @@ CATEGORIES = [
 ]
 
 LLM_MODEL_NAME = "deepseek-v3-250324"
+
+env = environ.Env()
+environ.Env.read_env()
 
 
 def init_embedding_model():
@@ -59,7 +63,7 @@ def init_llm_client():
     """初始化 LLM 客户端"""
     llm_client = OpenAI(
         base_url="https://ark.cn-beijing.volces.com/api/v3",
-        api_key=os.environ.get("ARK_API_KEY"),
+        api_key=env("ARK_API_KEY"),
     )
     return llm_client
 
@@ -239,7 +243,7 @@ def main(need_build_kb=False):
     # 构建知识库
     if need_build_kb:
         build_knowledge_base(
-            kb_file="/Users/wangzhen/Downloads/test.csv",
+            kb_file=env("BILL_FILES_PATH") + "test.csv",
             collection=collection,
             embedding_model=embedding_model,
         )
@@ -262,10 +266,10 @@ if __name__ == "__main__":
 
     parser = argparse.ArgumentParser(description="Train the bill classification model")
     parser.add_argument(
-        "--need_build_kb",
+        "--build",
         type=bool,
         default=False,
         help="Whether to build the knowledge base",
     )
     args = parser.parse_args()
-    main(args.need_build_kb)
+    main(args.build)

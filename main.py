@@ -1,5 +1,6 @@
 import csv
 import chardet
+import environ
 
 EAT_CATEGORY = [
     "饭",
@@ -224,15 +225,9 @@ def write_data(path, data):
 
 
 def main():
-    DIR_PATH = ""
-    # 指定目录
-    if platform.system() == "Windows":
-        DIR_PATH = "Y:\\bill_files\\"
-        # DIR_PATH = "C:\\Users\wang7\\iCloudDrive\\bill_files\\"
-    elif platform.system() == "Darwin":
-        DIR_PATH = (
-            "/Users/wangzhen/Library/Mobile Documents/com~apple~CloudDocs/bill_files/"
-        )
+    env = environ.Env()
+    environ.Env.read_env()
+    DIR_PATH = env("BILL_FILES_PATH")
 
     # 查找指定目录下所有csv文件
     csv_files = glob.glob(DIR_PATH + "*.csv")
