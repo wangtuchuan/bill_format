@@ -1,0 +1,5 @@
+sentence-transformers==4.0.2
+transformers==4.50.3
+chromadb==1.0.3
+pandas==2.2.2
+openai==1.71.0
