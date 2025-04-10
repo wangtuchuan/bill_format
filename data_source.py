@@ -1,3 +1,7 @@
+"""
+该文件为训练用的数据的来源处理，后续有空再重构一下，目前对于个人来说，基本上不会再用到该文件了
+"""
+
 import csv
 import chardet
 import environ
@@ -251,7 +255,5 @@ def main():
 if __name__ == "__main__":
     import os
     import glob
-
-    import platform
 
     main()
