@@ -1,13 +1,15 @@
 from utils import get_collection, get_llm_client, get_embedding_model
 from constants import CATEGORIES, LLM_MODEL_NAME
 from config import BillConfig
+from db_utils import BillDatabase
 import glob
 import os
 import environ
 import chardet
 import csv
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Tuple
 from dataclasses import dataclass
+from datetime import datetime
 
 # 加载环境变量
 env = environ.Env()
@@ -36,11 +38,27 @@ class BillProcessor:
     """账单处理类"""
 
     def __init__(self, collection, embedding_model, llm_client):
+        """初始化账单处理器"""
         self.collection = collection
         self.embedding_model = embedding_model
         self.llm_client = llm_client
         self.config = BillConfig()
         self.DIR_PATH = env("BILL_FILES_PATH", default=self.config.BILL_FILES_PATH)
+        self.db = BillDatabase()
+        # 用于记录当前处理的记录信息
+        self.current_source_type = None
+        self.current_date = None
+        self.current_type = None
+
+    def get_date_range(self, data: List[Dict], source_type: str) -> Tuple[str, str]:
+        """获取账单数据的日期范围"""
+        date_field = (
+            self.config.ALIPAY_FIELD_MAPPING["date"]
+            if source_type == ALIPAY
+            else self.config.WECHAT_FIELD_MAPPING["date"]
+        )
+        dates = [row[date_field] for row in data]
+        return min(dates), max(dates)
 
     def clean_alipay_account(self, account: str) -> str:
         """清洗支付宝账户名称"""
@@ -78,7 +96,7 @@ class BillProcessor:
         """使用 RAG 和 LLM 对账单进行分类"""
         # 1. 使用 RAG 获取相关上下文
         retrieved_context, best_match = self.classify_bill_with_rag(
-            merchant, description, amount, k=self.config.RAG_CONFIG["k"]
+            merchant, description, k=self.config.RAG_CONFIG["k"]
         )
 
         # 如果找到高度相似的匹配，直接返回知识库中的分类
@@ -86,17 +104,30 @@ class BillProcessor:
             return best_match["category"]
 
         # 2. 否则使用 LLM 进行分类
-        return self.classify_bill_with_llm(
+        predicted_category = self.classify_bill_with_llm(
             retrieved_context, merchant, description, amount
         )
 
+        # 记录需要确认的记录
+        self.db.save_pending_record(
+            source_type=self.current_source_type,
+            date=self.current_date,
+            type=self.current_type,
+            amount=amount,
+            merchant=merchant,
+            description=description,
+            predicted_category=predicted_category,
+            similarity=best_match["similarity"] if best_match else 0.0,
+        )
+
+        return predicted_category
+
     def classify_bill_with_rag(
-        self, merchant_name: str, description: str, amount: str, k: int = 3
+        self, merchant_name: str, description: str, k: int = 3
     ) -> tuple[str, Optional[Dict]]:
         """使用 RAG 获取相关上下文"""
         merchant_name = str(merchant_name).strip()
         description = str(description).strip()
-        amount = str(amount).strip()
 
         query_text = f"商户: {merchant_name}"
         if description:
@@ -159,7 +190,7 @@ class BillProcessor:
 
         分类结果：
         """
-        print("使用大模型进行分类")
+        print(f"使用大模型进行分类, {merchant_name}: {description}")
         try:
             response = self.llm_client.chat.completions.create(
                 model=LLM_MODEL_NAME,
@@ -185,41 +216,13 @@ class BillProcessor:
             print(f"Error calling LLM API: {e}")
             return "其他"
 
-    def process_alipay_record(self, row: Dict) -> BillRecord:
-        """处理支付宝账单记录"""
-        # 特殊处理
-        if (
-            row[self.config.ALIPAY_FIELD_MAPPING["type"]].strip() == "不计收支"
-            and row[self.config.ALIPAY_FIELD_MAPPING["status"]].strip() == "退款成功"
-        ):
-            row[self.config.ALIPAY_FIELD_MAPPING["type"]] = "收入"
-
-        return BillRecord(
-            date=row[self.config.ALIPAY_FIELD_MAPPING["date"]],
-            type=row[self.config.ALIPAY_FIELD_MAPPING["type"]],
-            amount=float(row[self.config.ALIPAY_FIELD_MAPPING["amount"]]),
-            category=self.clean_alipay_category(row),
-            account1=self.clean_alipay_account(
-                row[self.config.ALIPAY_FIELD_MAPPING["account"]]
-            ),
-            note=f"{row[self.config.ALIPAY_FIELD_MAPPING['merchant']]} {row[self.config.ALIPAY_FIELD_MAPPING['description']]}",
-        )
-
-    def process_wechat_record(self, row: Dict) -> BillRecord:
-        """处理微信账单记录"""
-        return BillRecord(
-            date=row[self.config.WECHAT_FIELD_MAPPING["date"]],
-            type=row[self.config.WECHAT_FIELD_MAPPING["type"]],
-            amount=float(row[self.config.WECHAT_FIELD_MAPPING["amount"]].split("¥")[1]),
-            category=self.clean_wechat_category(row),
-            account1=self.clean_wechat_account(
-                row[self.config.WECHAT_FIELD_MAPPING["account"]]
-            ),
-            note=f"{row[self.config.WECHAT_FIELD_MAPPING['merchant']]} {row[self.config.WECHAT_FIELD_MAPPING['description']]}",
-        )
-
     def load_data(self, source_type: str, filename: str) -> List[Dict]:
         """加载账单数据"""
+        # 检查文件是否已处理
+        # if self.db.is_file_processed(filename):
+        #     print(f"文件 {filename} 已处理过，跳过")
+        #     return []
+
         with open(filename, "rb") as f:
             result = chardet.detect(f.read())
 
@@ -239,10 +242,168 @@ class BillProcessor:
 
             data = [row for row in reader]
             header = data[0]
-            return [dict(zip(header, row)) for row in data[1:]]
+            records = [dict(zip(header, row)) for row in data[1:]]
 
-    def write_data(self, path: str, data: Dict[str, List[Dict]]) -> None:
-        """写入处理后的数据"""
+            # 获取日期范围
+            start_date, end_date = self.get_date_range(records, source_type)
+
+            # 检查是否有重叠记录
+            existing_records = self.db.get_existing_records(
+                source_type, start_date, end_date
+            )
+            if existing_records:
+                print(f"发现 {len(existing_records)} 条已处理的记录，将跳过这些记录")
+                # 过滤掉已存在的记录
+                existing_keys = {
+                    (r["date"], r["merchant"], r["amount"]) for r in existing_records
+                }
+                records = [
+                    r
+                    for r in records
+                    if (
+                        r[
+                            (
+                                self.config.ALIPAY_FIELD_MAPPING["date"]
+                                if source_type == ALIPAY
+                                else self.config.WECHAT_FIELD_MAPPING["date"]
+                            )
+                        ],
+                        r[
+                            (
+                                self.config.ALIPAY_FIELD_MAPPING["merchant"]
+                                if source_type == ALIPAY
+                                else self.config.WECHAT_FIELD_MAPPING["merchant"]
+                            )
+                        ],
+                        float(
+                            r[
+                                (
+                                    self.config.ALIPAY_FIELD_MAPPING["amount"]
+                                    if source_type == ALIPAY
+                                    else self.config.WECHAT_FIELD_MAPPING["amount"]
+                                )
+                            ].split("¥")[1]
+                            if source_type == WECHAT
+                            else r[self.config.ALIPAY_FIELD_MAPPING["amount"]]
+                        ),
+                    )
+                    not in existing_keys
+                ]
+
+            # 保存文件处理记录
+            if records:
+                self.db.save_processed_file(
+                    os.path.basename(filename), source_type, start_date, end_date
+                )
+
+            return records
+
+    def process_alipay_record(self, row: Dict, filename: str) -> BillRecord:
+        """处理支付宝账单记录"""
+        # 特殊处理
+        if (
+            row[self.config.ALIPAY_FIELD_MAPPING["type"]].strip() == "不计收支"
+            and row[self.config.ALIPAY_FIELD_MAPPING["status"]].strip() == "退款成功"
+        ):
+            row[self.config.ALIPAY_FIELD_MAPPING["type"]] = "收入"
+
+        # 保存当前记录信息，用于后续分类
+        self.current_source_type = ALIPAY
+        self.current_date = row[self.config.ALIPAY_FIELD_MAPPING["date"]]
+        self.current_type = row[self.config.ALIPAY_FIELD_MAPPING["type"]]
+
+        record = BillRecord(
+            date=self.current_date,
+            type=self.current_type,
+            amount=float(row[self.config.ALIPAY_FIELD_MAPPING["amount"]]),
+            category=self.clean_alipay_category(row),
+            account1=self.clean_alipay_account(
+                row[self.config.ALIPAY_FIELD_MAPPING["account"]]
+            ),
+            note=f"{row[self.config.ALIPAY_FIELD_MAPPING['merchant']]} {row[self.config.ALIPAY_FIELD_MAPPING['description']]}",
+        )
+
+        # 保存到数据库
+        self.db.save_bill_record(
+            {
+                "source_type": ALIPAY,
+                "date": record.date,
+                "type": record.type,
+                "amount": record.amount,
+                "category": record.category,
+                "sub_category": record.sub_category,
+                "account1": record.account1,
+                "account2": record.account2,
+                "note": record.note,
+                "merchant": row[self.config.ALIPAY_FIELD_MAPPING["merchant"]],
+                "description": row[self.config.ALIPAY_FIELD_MAPPING["description"]],
+                "filename": os.path.basename(filename),
+            }
+        )
+
+        return record
+
+    def process_wechat_record(self, row: Dict, filename: str) -> BillRecord:
+        """处理微信账单记录"""
+        # 保存当前记录信息，用于后续分类
+        self.current_source_type = WECHAT
+        self.current_date = row[self.config.WECHAT_FIELD_MAPPING["date"]]
+        self.current_type = row[self.config.WECHAT_FIELD_MAPPING["type"]]
+
+        record = BillRecord(
+            date=self.current_date,
+            type=self.current_type,
+            amount=float(row[self.config.WECHAT_FIELD_MAPPING["amount"]].split("¥")[1]),
+            category=self.clean_wechat_category(row),
+            account1=self.clean_wechat_account(
+                row[self.config.WECHAT_FIELD_MAPPING["account"]]
+            ),
+            note=f"{row[self.config.WECHAT_FIELD_MAPPING['merchant']]} {row[self.config.WECHAT_FIELD_MAPPING['description']]}",
+        )
+
+        # 保存到数据库
+        self.db.save_bill_record(
+            {
+                "source_type": WECHAT,
+                "date": record.date,
+                "type": record.type,
+                "amount": record.amount,
+                "category": record.category,
+                "sub_category": record.sub_category,
+                "account1": record.account1,
+                "account2": record.account2,
+                "note": record.note,
+                "merchant": row[self.config.WECHAT_FIELD_MAPPING["merchant"]],
+                "description": row[self.config.WECHAT_FIELD_MAPPING["description"]],
+                "filename": os.path.basename(filename),
+            }
+        )
+
+        return record
+
+    def write_data(
+        self, path: str, data: Dict[str, List[Dict]], filenames: Dict[str, str]
+    ) -> None:
+        """写入处理后的数据
+        Args:
+            path: 输出文件路径
+            data: 处理后的数据
+            filenames: 源文件名映射，key为source_type，value为filename
+        """
+        # 从数据库获取所有记录
+        all_records = []
+        for source_type in [ALIPAY, WECHAT]:
+            records = self.db.get_existing_records(
+                source_type,
+                datetime.now().replace(day=1).strftime("%Y-%m-%d"),  # 本月第一天
+                datetime.now().strftime("%Y-%m-%d"),  # 今天
+            )
+            all_records.extend(records)
+
+        # 按日期排序
+        all_records.sort(key=lambda x: x["date"])
+
+        # 写入文件
         with open(
             os.path.join(path, self.config.OUTPUT_FILENAME),
             "w",
@@ -258,9 +419,9 @@ class BillProcessor:
                     row = {k.strip(): v for k, v in row.items()}
 
                     if source_type == ALIPAY:
-                        bill_record = self.process_alipay_record(row)
+                        bill_record = self.process_alipay_record(row, filenames[ALIPAY])
                     else:
-                        bill_record = self.process_wechat_record(row)
+                        bill_record = self.process_wechat_record(row, filenames[WECHAT])
 
                     csv_writer.writerow(
                         {
@@ -293,15 +454,18 @@ def main():
 
     # 处理账单数据
     data = {}
+    filenames = {}
     for csv_file in csv_files:
         filename = os.path.basename(csv_file)
         if filename.startswith("alipay_record") and ALIPAY not in data:
             data[ALIPAY] = bill_processor.load_data(ALIPAY, csv_file)
+            filenames[ALIPAY] = csv_file
         elif filename.startswith("微信支付账单") and WECHAT not in data:
             data[WECHAT] = bill_processor.load_data(WECHAT, csv_file)
+            filenames[WECHAT] = csv_file
 
     # 写入处理后的数据
-    bill_processor.write_data(DIR_PATH, data)
+    bill_processor.write_data(DIR_PATH, data, filenames)
 
 
 if __name__ == "__main__":
