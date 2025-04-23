@@ -1,3 +1,7 @@
+import os
+
+os.environ["TOKENIZERS_PARALLELISM"] = "false"
+
 from utils import get_collection, get_llm_client, get_embedding_model
 from constants import CATEGORIES, LLM_MODEL_NAME
 from config import BillConfig
@@ -65,7 +69,7 @@ class BillProcessor:
         for key, value in self.config.ALIPAY_ACCOUNT_RULES.items():
             if key in account:
                 return value
-        return self.config.ALIPAY_ACCOUNT_RULES["default"]
+        return account
 
     def clean_wechat_account(self, account: str) -> str:
         """清洗微信账户名称"""
@@ -457,10 +461,10 @@ def main():
     filenames = {}
     for csv_file in csv_files:
         filename = os.path.basename(csv_file)
-        if filename.startswith("alipay_record") and ALIPAY not in data:
+        if filename.startswith("支付宝") and ALIPAY not in data:
             data[ALIPAY] = bill_processor.load_data(ALIPAY, csv_file)
             filenames[ALIPAY] = csv_file
-        elif filename.startswith("微信支付账单") and WECHAT not in data:
+        elif filename.startswith("微信") and WECHAT not in data:
             data[WECHAT] = bill_processor.load_data(WECHAT, csv_file)
             filenames[WECHAT] = csv_file
 

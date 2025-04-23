@@ -41,3 +41,24 @@ def get_llm_client():
         api_key=env("ARK_API_KEY"),
     )
     return llm_client
+
+
+def process_kb_entry(embedding_model, merchant, description, category):
+    """处理知识库中的单个条目"""
+    entry_id = f"kb_{merchant}_{description}"
+    text_to_embed = f"商户: {merchant}"
+    if description:
+        text_to_embed += f" 描述关键词: {description}"
+
+    embedding = embedding_model.encode(text_to_embed).tolist()
+
+    return {
+        "embedding": embedding,
+        "document": text_to_embed,
+        "metadata": {
+            "merchant_name": merchant,
+            "description_pattern": description,
+            "category": category,
+        },
+        "id": entry_id,
+    }

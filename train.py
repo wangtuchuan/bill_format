@@ -1,35 +1,10 @@
 import pandas as pd
-from utils import get_embedding_model, get_collection
+from utils import get_embedding_model, get_collection, process_kb_entry
 import environ
 
 
 env = environ.Env()
 environ.Env.read_env()
-
-
-def process_kb_entry(row, embedding_model):
-    """处理知识库中的单个条目"""
-    merchant = str(row["商家"]).strip()
-    description = str(row.get("商品信息", "")).strip()
-    category = str(row["分类"]).strip()
-
-    entry_id = f"kb_{merchant}_{description}"
-    text_to_embed = f"商户: {merchant}"
-    if description:
-        text_to_embed += f" 描述关键词: {description}"
-
-    embedding = embedding_model.encode(text_to_embed).tolist()
-
-    return {
-        "embedding": embedding,
-        "document": text_to_embed,
-        "metadata": {
-            "merchant_name": merchant,
-            "description_pattern": description,
-            "category": category,
-        },
-        "id": entry_id,
-    }
 
 
 def build_knowledge_base(kb_file, collection, embedding_model):
@@ -46,7 +21,10 @@ def build_knowledge_base(kb_file, collection, embedding_model):
 
     new_entries = []
     for index, row in kb_df.iterrows():
-        entry = process_kb_entry(row, embedding_model)
+        merchant = str(row["商家"]).strip()
+        description = str(row.get("商品信息", "")).strip()
+        category = str(row["分类"]).strip()
+        entry = process_kb_entry(embedding_model, merchant, description, category)
         if entry["id"] not in existing_ids:
             new_entries.append(entry)
             existing_ids.add(entry["id"])
