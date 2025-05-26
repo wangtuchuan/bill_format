@@ -90,6 +90,9 @@ def confirm_records(db: BillDatabase, collection, categories: List[str]) -> None
 
     print(f"发现 {len(pending_records)} 条待确认的记录")
 
+    # 用于存储当前会话中确认的记录
+    session_confirmed_records = []
+
     for record in pending_records:
         display_record(record)
 
@@ -109,6 +112,7 @@ def confirm_records(db: BillDatabase, collection, categories: List[str]) -> None
             if choice in ["", "1"]:
                 # 确认当前分类
                 db.confirm_record(record["id"], record["predicted_category"])
+                session_confirmed_records.append(record)
                 print("已确认当前分类")
                 break
             elif choice == "2":
@@ -116,6 +120,7 @@ def confirm_records(db: BillDatabase, collection, categories: List[str]) -> None
                 new_category = select_category(categories)
                 if new_category:
                     db.confirm_record(record["id"], new_category)
+                    session_confirmed_records.append(record)
                     print(f"已修改分类为: {new_category}")
                 break
             elif choice == "3":
@@ -127,10 +132,9 @@ def confirm_records(db: BillDatabase, collection, categories: List[str]) -> None
                 print("退出确认流程")
                 return
 
-    # 将确认的记录添加到 collection
-    confirmed_records = db.get_confirmed_records()
-    if confirmed_records:
-        print(f"\n将 {len(confirmed_records)} 条确认的记录添加到知识库...")
+    # 将当前会话中确认的记录添加到 collection
+    if session_confirmed_records:
+        print(f"\n将 {len(session_confirmed_records)} 条确认的记录添加到知识库...")
         embedding_model = get_embedding_model()
 
         # 使用列表推导式处理记录
@@ -141,7 +145,7 @@ def confirm_records(db: BillDatabase, collection, categories: List[str]) -> None
                 str(record["description"]).strip(),
                 str(record["confirmed_category"]).strip(),
             )
-            for record in confirmed_records
+            for record in session_confirmed_records
         ]
 
         process_entries_to_collection(collection, entries)

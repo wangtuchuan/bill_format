@@ -129,3 +129,7 @@ dmypy.json
 .pyre/
 chroma_db/
 *.db
+
+*.zip
+*.txt
+.DS_Store

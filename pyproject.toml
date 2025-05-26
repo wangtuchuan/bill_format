@@ -1,0 +1,14 @@
+[project]
+name = "bill_formatter"
+version = "0.1.0"
+description = "Format bill records from Alipay and Wechat"
+requires-python = ">=3.11"
+dependencies = [
+    "sentence-transformers==4.0.2",
+    "transformers==4.50.3",
+    "chromadb==1.0.3",
+    "pandas==2.2.2",
+    "openai==1.71.0",
+    "django-environ==0.12.0",
+    "chardet>=5.2.0",
+]

@@ -1,7 +1,7 @@
 # 账单分类配置
 class BillConfig:
     # 相似度阈值配置
-    SIMILARITY_THRESHOLD = 0.9  # 知识库匹配的相似度阈值
+    SIMILARITY_THRESHOLD = 0.85  # 知识库匹配的相似度阈值
     LOW_SIMILARITY_THRESHOLD = 0.5  # 低相似度阈值，用于显示提示信息
 
     # 账户清洗规则

@@ -105,7 +105,8 @@ class BillProcessor:
 
         # 如果找到高度相似的匹配，直接返回知识库中的分类
         if best_match and best_match["similarity"] > self.config.SIMILARITY_THRESHOLD:
-            return best_match["category"]
+            if best_match["category"] in CATEGORIES:
+                return best_match["category"]
 
         # 2. 否则使用 LLM 进行分类
         predicted_category = self.classify_bill_with_llm(
