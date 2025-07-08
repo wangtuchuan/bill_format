@@ -163,7 +163,7 @@ def process_file_records(file_path: str, collection) -> None:
             embedding_model, merchant.strip(), description.strip(), category.strip()
         )
         for line in records
-        for category, merchant, description in [line.strip().split(",")]
+        for category, merchant, description in [line.strip().split(",", 2)]
     ]
 
     process_entries_to_collection(collection, entries)

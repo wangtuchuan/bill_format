@@ -11,6 +11,7 @@ import os
 import environ
 import chardet
 import csv
+import pandas as pd
 from typing import Dict, List, Optional, Tuple
 from dataclasses import dataclass
 from datetime import datetime
@@ -222,12 +223,83 @@ class BillProcessor:
             return "其他"
 
     def load_data(self, source_type: str, filename: str) -> List[Dict]:
-        """加载账单数据"""
+        """加载账单数据，支持 CSV 和 XLSX 文件"""
         # 检查文件是否已处理
         # if self.db.is_file_processed(filename):
         #     print(f"文件 {filename} 已处理过，跳过")
         #     return []
 
+        file_extension = os.path.splitext(filename)[1].lower()
+
+        if file_extension == ".xlsx":
+            # 处理 XLSX 文件
+            records = self._load_xlsx_data(source_type, filename)
+        elif file_extension == ".csv":
+            # 处理 CSV 文件（原有逻辑）
+            records = self._load_csv_data(source_type, filename)
+        else:
+            print(f"不支持的文件格式: {file_extension}")
+            return []
+
+        if not records:
+            return []
+
+        # 获取日期范围
+        start_date, end_date = self.get_date_range(records, source_type)
+
+        # 检查是否有重叠记录
+        existing_records = self.db.get_existing_records(
+            source_type, start_date, end_date
+        )
+        if existing_records:
+            print(f"发现 {len(existing_records)} 条已处理的记录，将跳过这些记录")
+            # 过滤掉已存在的记录
+            existing_keys = {
+                (r["date"], r["merchant"], r["amount"]) for r in existing_records
+            }
+            records = [
+                r
+                for r in records
+                if (
+                    r[
+                        (
+                            self.config.ALIPAY_FIELD_MAPPING["date"]
+                            if source_type == ALIPAY
+                            else self.config.WECHAT_FIELD_MAPPING["date"]
+                        )
+                    ],
+                    r[
+                        (
+                            self.config.ALIPAY_FIELD_MAPPING["merchant"]
+                            if source_type == ALIPAY
+                            else self.config.WECHAT_FIELD_MAPPING["merchant"]
+                        )
+                    ],
+                    float(
+                        r[
+                            (
+                                self.config.ALIPAY_FIELD_MAPPING["amount"]
+                                if source_type == ALIPAY
+                                else self.config.WECHAT_FIELD_MAPPING["amount"]
+                            )
+                        ].split("¥")[1]
+                        if source_type == WECHAT
+                        else r[self.config.ALIPAY_FIELD_MAPPING["amount"]]
+                    ),
+                )
+                not in existing_keys
+            ]
+
+        # 保存文件处理记录
+        if records:
+            self.db.save_processed_file(
+                os.path.basename(filename), source_type, start_date, end_date
+            )
+
+        return records
+
+    def _load_csv_data(self, source_type: str, filename: str) -> List[Dict]:
+        """加载 CSV 文件数据（原有逻辑）"""
         with open(filename, "rb") as f:
             result = chardet.detect(f.read())
 
@@ -248,60 +320,81 @@ class BillProcessor:
             data = [row for row in reader]
             header = data[0]
             records = [dict(zip(header, row)) for row in data[1:]]
+            return records
 
-            # 获取日期范围
-            start_date, end_date = self.get_date_range(records, source_type)
+    def _load_xlsx_data(self, source_type: str, filename: str) -> List[Dict]:
+        """加载 XLSX 文件数据"""
+        try:
+            # 读取 Excel 文件，不使用任何行作为列名
+            df = pd.read_excel(filename, header=None)
 
-            # 检查是否有重叠记录
-            existing_records = self.db.get_existing_records(
-                source_type, start_date, end_date
-            )
-            if existing_records:
-                print(f"发现 {len(existing_records)} 条已处理的记录，将跳过这些记录")
-                # 过滤掉已存在的记录
-                existing_keys = {
-                    (r["date"], r["merchant"], r["amount"]) for r in existing_records
-                }
-                records = [
-                    r
-                    for r in records
-                    if (
-                        r[
-                            (
-                                self.config.ALIPAY_FIELD_MAPPING["date"]
-                                if source_type == ALIPAY
-                                else self.config.WECHAT_FIELD_MAPPING["date"]
-                            )
-                        ],
-                        r[
-                            (
-                                self.config.ALIPAY_FIELD_MAPPING["merchant"]
-                                if source_type == ALIPAY
-                                else self.config.WECHAT_FIELD_MAPPING["merchant"]
-                            )
-                        ],
-                        float(
-                            r[
-                                (
-                                    self.config.ALIPAY_FIELD_MAPPING["amount"]
-                                    if source_type == ALIPAY
-                                    else self.config.WECHAT_FIELD_MAPPING["amount"]
-                                )
-                            ].split("¥")[1]
-                            if source_type == WECHAT
-                            else r[self.config.ALIPAY_FIELD_MAPPING["amount"]]
-                        ),
-                    )
-                    not in existing_keys
+            # 查找真正的列名行（数据中包含"交易时间"等字段的行）
+            header_row_index = -1
+            actual_column_names = []
+
+            for i, row in df.iterrows():
+                # 将这一行转换为字符串列表
+                row_values = [
+                    str(val).strip() if not pd.isna(val) else "" for val in row.values
                 ]
 
-            # 保存文件处理记录
+                # 检查这一行是否包含列名关键字
+                if any(
+                    keyword in " ".join(row_values)
+                    for keyword in ["交易时间", "商户名称", "交易类型", "金额"]
+                ):
+                    header_row_index = i
+                    # 提取真实的列名
+                    actual_column_names = [
+                        val for val in row_values if val and val.strip()
+                    ]
+                    print(f"找到列名行（第{i+1}行）: {actual_column_names}")
+                    break
+
+            if header_row_index == -1:
+                print("未找到包含列名的行")
+                return []
+
+            # 从列名行的下一行开始读取数据
+            data_start_row = header_row_index + 1
+
+            # 获取数据行
+            data_rows = []
+            for i in range(data_start_row, len(df)):
+                row_values = [
+                    str(val).strip() if not pd.isna(val) else ""
+                    for val in df.iloc[i].values
+                ]
+                # 过滤掉空行
+                if any(val.strip() for val in row_values):
+                    data_rows.append(row_values)
+
+            # 构建记录字典
+            records = []
+            for row_values in data_rows:
+                record = {}
+                for j, col_name in enumerate(actual_column_names):
+                    if j < len(row_values):
+                        record[col_name] = row_values[j]
+                    else:
+                        record[col_name] = ""
+                # 只添加有有效数据的记录
+                if any(v.strip() for v in record.values() if v):
+                    records.append(record)
+
+            print(f"成功从 XLSX 文件读取 {len(records)} 条记录")
+            print(f"列名: {actual_column_names}")
             if records:
-                self.db.save_processed_file(
-                    os.path.basename(filename), source_type, start_date, end_date
-                )
+                print(f"第一条记录: {records[0]}")
 
             return records
+
+        except Exception as e:
+            print(f"读取 XLSX 文件时出错: {e}")
+            import traceback
+
+            traceback.print_exc()
+            return []
 
     def process_alipay_record(self, row: Dict, filename: str) -> BillRecord:
         """处理支付宝账单记录"""
@@ -448,26 +541,31 @@ def main():
     collection = get_collection()
     llm_client = get_llm_client()
     embedding_model = get_embedding_model()
+    # collection = ""
+    # llm_client = ""
+    # embedding_model = ""
     bill_processor = BillProcessor(collection, embedding_model, llm_client)
 
     # 获取账单文件路径
     DIR_PATH = env("BILL_FILES_PATH", default=bill_processor.config.BILL_FILES_PATH)
 
-    # 查找最新的账单文件
+    # 查找最新的账单文件（支持 CSV 和 XLSX）
     csv_files = glob.glob(os.path.join(DIR_PATH, "*.csv"))
-    csv_files.sort(key=os.path.getmtime, reverse=True)
+    xlsx_files = glob.glob(os.path.join(DIR_PATH, "*.xlsx"))
+    all_files = csv_files + xlsx_files
+    all_files.sort(key=os.path.getmtime, reverse=True)
 
     # 处理账单数据
     data = {}
     filenames = {}
-    for csv_file in csv_files:
-        filename = os.path.basename(csv_file)
+    for file_path in all_files:
+        filename = os.path.basename(file_path)
         if filename.startswith("支付宝") and ALIPAY not in data:
-            data[ALIPAY] = bill_processor.load_data(ALIPAY, csv_file)
-            filenames[ALIPAY] = csv_file
+            data[ALIPAY] = bill_processor.load_data(ALIPAY, file_path)
+            filenames[ALIPAY] = file_path
         elif filename.startswith("微信") and WECHAT not in data:
-            data[WECHAT] = bill_processor.load_data(WECHAT, csv_file)
-            filenames[WECHAT] = csv_file
+            data[WECHAT] = bill_processor.load_data(WECHAT, file_path)
+            filenames[WECHAT] = file_path
 
     # 写入处理后的数据
     bill_processor.write_data(DIR_PATH, data, filenames)
